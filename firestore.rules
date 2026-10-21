@@ -1,0 +1,58 @@
+rules_version = '2';
+
+// Regras de segurança do Cloud Firestore do Mural da Turma.
+//
+// Convenção usada nas regras do Firestore: `allow` significa "permitir" e
+// `if` significa "se". Então "allow delete: if X" lê "permitir a exclusão se X".
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Usuário logado no Firebase Authentication.
+    function logado() {
+      return request.auth != null;
+    }
+
+    // O documento pertence ao usuário logado (UID do Firebase Auth).
+    function dono(uid) {
+      return logado() && request.auth.uid == uid;
+    }
+
+    // Perfis dos usuários.
+    match /usuarios/{userId} {
+      allow read: if logado();
+      allow create: if dono(userId);
+      allow update, delete: if dono(userId);
+    }
+
+    // Publicações do mural.
+    match /publicacoes/{publicacaoId} {
+      allow read: if logado();
+      allow create: if logado() && request.resource.data.autorId == request.auth.uid;
+      allow update: if logado() && resource.data.autorId == request.auth.uid;
+      allow delete: if logado() && resource.data.autorId == request.auth.uid;
+    }
+
+    // Comentários das publicações.
+    //
+    // - Qualquer usuário logado pode ler os comentários (necessário para a
+    //   discussão em tempo real entre contas diferentes).
+    // - Só é possível criar comentário em nome próprio e vinculando-o a uma
+    //   publicação (campo publicacaoId obrigatório).
+    // - Comentários não podem ser editados.
+    // - Só o autor do comentário pode excluí-lo: a checagem usa o UID do
+    //   Firebase Auth (request.auth.uid) guardado em resource.data.autorId.
+    match /comentarios/{comentarioId} {
+      allow read: if logado();
+      allow create: if logado()
+        && request.resource.data.autorId == request.auth.uid
+        && request.resource.data.texto is string
+        && request.resource.data.texto.size() > 0
+        && request.resource.data.texto.size() <= 280
+        && request.resource.data.autorNome is string
+        && request.resource.data.publicacaoId is string
+        && request.resource.data.publicacaoId.size() > 0;
+      allow update: if false;
+      allow delete: if logado() && resource.data.autorId == request.auth.uid;
+    }
+  }
+}
